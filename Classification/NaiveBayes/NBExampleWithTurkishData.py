@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # coding: utf-8
-
 import pandas as pd
 import random
 
@@ -41,129 +40,73 @@ random.shuffle(list)
 df = pd.DataFrame(list)
 df
 
+#######  START PREPROCESS DATA ###########################################################################
+import nltk
+import re
+import numpy as np
 
-# In[231]:
+nltk.download('stopwords')
+stop_word_list = nltk.corpus.stopwords.words('turkish')
+WPT = nltk.WordPunctTokenizer()
 
+REPLACE_BY_SPACE_RE = re.compile('[/(){}\[\]\|@,;]')
+STOPWORDS = set(stopwords.words('turkish'))
+
+def clean_text(text):
+    """
+        text: a string
+        
+        return: modified initial string
+    """
+    text = text.lower() # lowercase text
+    text = REPLACE_BY_SPACE_RE.sub(' ', text) # replace REPLACE_BY_SPACE_RE symbols by space in text
+    tokens = WPT.tokenize(text)
+    text = ' '.join(word for word in tokens if word not in STOPWORDS) # delete stopwors from text
+    return text
+    
+df['text'] = df['text'].apply(clean_text)
+
+
+df['text'].apply(lambda x: len(x.split(' '))).sum()
+
+print(df['text'])
+
+#######  END PREPROCESS DATA ###########################################################################
 
 df['author_num'] = df.author.map({'abbasGuclu':0, 'balcicekPamir':1, 'eceTemelkuran':2, 'gulseBirsel':3, 'guneriCivaoglu':4})
-
-
-# In[232]:
-
 
 x = df['text']
 y = df['author_num']
 
 
-# In[243]:
-
-
+######  DATA SPLIT FOR TRAINING AND TESTING #############################################################
 from sklearn.model_selection import train_test_split
-X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.1, random_state=434)
-print(X_train.shape, y_train.shape, X_test.shape, y_test.shape)
+X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=435)
 
 
-# In[244]:
+# MULTINOMIAL NAIVE BAYES CLASSIFICATION #################################################################
 
 
-# examine the class distribution in y_train and y_test
-print(y_train.value_counts(),'\n', y_test.value_counts())
-
-
-# In[245]:
-
-
-# import and instantiate CountVectorizer
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.feature_extraction.text import TfidfVectorizer
-# vect = CountVectorizer()
-# vect = CountVectorizer(lowercase=False, token_pattern=r'(?u)\b\w+\b')
-vect = CountVectorizer(lowercase=False, token_pattern=r'(?u)\b\w+\b|\,|\.|\;|\:')
-# vect = CountVectorizer(lowercase=False, token_pattern=r'(?u)\b\w+\b|\,|\.|\?|\;|\:|\!|\'')
-vect
-
-
-# In[246]:
-
-
-# learn the vocabulary in the training data, then use it to create a document-term matrix
-X_train_dtm = vect.fit_transform(X_train)
-# examine the document-term matrix created from X_train
-X_train_dtm
-
-
-# In[247]:
-
-
-# transform the test data using the earlier fitted vocabulary, into a document-term matrix
-X_test_dtm = vect.transform(X_test)
-# examine the document-term matrix from X_test
-X_test_dtm
-
-
-# In[248]:
-
-
-def add_feature(X, feature_to_add):
-    '''
-    Returns sparse feature matrix with added feature.
-    feature_to_add can also be a list of features.
-    '''
-    from scipy.sparse import csr_matrix, hstack
-    return hstack([X, csr_matrix(feature_to_add).T], 'csr')
-
-
-# In[249]:
-
-
-from string import punctuation
-X_train_chars = X_train.str.len()
-X_train_punc = X_train.apply(lambda x: len([c for c in str(x) if c in punctuation]))
-X_test_chars = X_test.str.len()
-X_test_punc = X_test.apply(lambda x: len([c for c in str(x) if c in punctuation]))
-X_train_dtm = add_feature(X_train_dtm, [X_train_chars, X_train_punc])
-X_test_dtm = add_feature(X_test_dtm, [X_test_chars, X_test_punc])
-
-
-# In[250]:
-
-
-# import and instantiate the Multinomial Naive Bayes model
 from sklearn.naive_bayes import MultinomialNB
-# set with recommended hyperparameters
-nb = MultinomialNB(alpha=1.0)
-# train the model using X_train_dtm & y_train
-nb.fit(X_train_dtm, y_train)
+from sklearn.pipeline import Pipeline
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfTransformer
 
-
-# In[251]:
-
-
-# make author (class) predictions for X_test_dtm
-y_pred_test = nb.predict(X_test_dtm)
-
-
-# In[252]:
-
-
-# compute the accuracy of the predictions with y_test
-from sklearn import metrics
-metrics.accuracy_score(y_test, y_pred_test)
-
-
-# In[253]:
-
-
-# compute the accuracy of training data predictions
-y_pred_train = nb.predict(X_train_dtm)
-metrics.accuracy_score(y_train, y_pred_train)
-
-
-# In[254]:
-
-
-# look at the confusion matrix for y_test
-metrics.confusion_matrix(y_test, y_pred_test)
+nb = Pipeline([('vect', CountVectorizer()),
+               ('tfidf', TfidfTransformer()),
+               ('clf', MultinomialNB()),
+              ])
+nb.fit(X_train, y_train)
 
 
 
+y_pred_test = nb.predict(X_test)
+
+
+#########  METRICS ###############################################################################################
+from sklearn.metrics import accuracy_score, confusion_matrix
+print('accuracy %s' % accuracy_score(y_pred_test, y_test))
+
+from sklearn.metrics import classification_report
+authors = df['author'].unique().tolist()
+print(classification_report(y_test, y_pred_test, target_names = authors))
